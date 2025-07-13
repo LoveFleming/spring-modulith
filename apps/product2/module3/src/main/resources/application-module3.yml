@@ -1,0 +1,4 @@
+module3:
+  enabled: false
+
+# Add other module3-specific properties here

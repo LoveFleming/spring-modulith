@@ -1,0 +1,4 @@
+module2:
+  enabled: false
+
+# Add other module2-specific properties here

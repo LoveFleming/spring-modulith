@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: spring-modulith-app
+
+# Example: enable/disable modules via profile or property
+module1:
+  enabled: true
+module2:
+  enabled: false
+module3:
+  enabled: false
+module4:
+  enabled: false
