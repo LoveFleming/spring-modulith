@@ -45,76 +45,88 @@ public class Module1Controller {
         com.google.gson.JsonObject result = resolvePlaceholder(sourceObj, templateObj);
         return result.toString();
     }
+
     /**
      * 根據 template JsonObject 物件中的 placeholder（如 {{ $key1.field1 }}），
      * 從 source JsonObject 物件取值並產生 output JsonObject。
      */
     public JsonObject resolvePlaceholder(JsonObject source, JsonObject template) {
-        JsonObject result = new JsonObject();
-        for (String key : template.keySet()) {
-            JsonElement value = template.get(key);
-            result.add(key, resolveNode(source, value));
+        // 將 template 轉為字串
+        String templateStr = template.toString();
+
+        // 先處理有雙引號包住的 placeholder: "{{ $... }}"
+        Pattern quotedPattern = Pattern.compile("\"\\{\\{\\s*\\$(.*?)\\s*}}\"");
+        Matcher quotedMatcher = quotedPattern.matcher(templateStr);
+        StringBuffer quotedSb = new StringBuffer();
+        while (quotedMatcher.find()) {
+            String expr = quotedMatcher.group(1).trim();
+            JsonElement value = getValueByPath(source, expr);
+            String replacement;
+            if (value == null || value.isJsonNull()) {
+                replacement = "null";
+            } else if (value.isJsonPrimitive() && value.getAsJsonPrimitive().isString()) {
+                // 字串型態保留雙引號
+                replacement = "\"" + escapeJsonString(value.getAsString()) + "\"";
+            } else {
+                // object/array 直接 toString（不加雙引號）
+                replacement = value.toString();
+            }
+            quotedMatcher.appendReplacement(quotedSb, Matcher.quoteReplacement(replacement));
         }
-        return result;
+        quotedMatcher.appendTail(quotedSb);
+
+        // 再處理沒被雙引號包住的 placeholder: {{ $... }}
+        String partiallyReplaced = quotedSb.toString();
+        Pattern plainPattern = Pattern.compile("\\{\\{\\s*\\$(.*?)\\s*}}");
+        Matcher plainMatcher = plainPattern.matcher(partiallyReplaced);
+        StringBuffer plainSb = new StringBuffer();
+        while (plainMatcher.find()) {
+            String expr = plainMatcher.group(1).trim();
+            JsonElement value = getValueByPath(source, expr);
+            String replacement;
+            if (value == null || value.isJsonNull()) {
+                replacement = "null";
+            } else if (value.isJsonPrimitive() && value.getAsJsonPrimitive().isString()) {
+                // 字串型態需加上引號
+                replacement = "\"" + escapeJsonString(value.getAsString()) + "\"";
+            } else {
+                // object/array 直接 toString
+                replacement = value.toString();
+            }
+            plainMatcher.appendReplacement(plainSb, Matcher.quoteReplacement(replacement));
+        }
+        plainMatcher.appendTail(plainSb);
+
+        // 轉回 JsonObject
+        return com.google.gson.JsonParser.parseString(plainSb.toString()).getAsJsonObject();
     }
 
-    // 遞迴解析 template node
-    private JsonElement resolveNode(JsonObject source, JsonElement templateNode) {
-        if (templateNode.isJsonObject()) {
-            JsonObject obj = new JsonObject();
-            for (String key : templateNode.getAsJsonObject().keySet()) {
-                obj.add(key, resolveNode(source, templateNode.getAsJsonObject().get(key)));
-            }
-            return obj;
-        } else if (templateNode.isJsonArray()) {
-            JsonArray templateArr = templateNode.getAsJsonArray();
-            JsonArray arr = new JsonArray();
-            for (JsonElement item : templateArr) {
-                if (item.isJsonObject() && item.getAsJsonObject().has("value")) {
-                    JsonObject obj = item.getAsJsonObject();
-                    JsonElement valueElem = obj.get("value");
-                    // 若 value 欄位為 placeholder，則遞迴解析
-                    if (valueElem.isJsonPrimitive() && valueElem.getAsJsonPrimitive().isString()) {
-                        String str = valueElem.getAsString();
-                        Pattern pattern = Pattern.compile("\\{\\{\\s*\\$(.*?)\\s*}}");
-                        Matcher matcher = pattern.matcher(str);
-                        if (matcher.matches()) {
-                            JsonElement resolved = resolveNode(source, valueElem);
-                            JsonObject newObj = obj.deepCopy();
-                            newObj.add("value", resolved);
-                            arr.add(newObj);
-                            continue;
-                        }
-                    }
-                }
-                arr.add(resolveNode(source, item));
-            }
-            return arr;
-        } else if (templateNode.isJsonPrimitive() && templateNode.getAsJsonPrimitive().isString()) {
-            String str = templateNode.getAsString();
-            Pattern pattern = Pattern.compile("\\{\\{\\s*\\$(.*?)\\s*}}");
-            Matcher matcher = pattern.matcher(str);
-            if (matcher.matches()) {
-                // 完全符合 {{ $... }}，取出內容
-                String expr = matcher.group(1).trim();
-                String[] parts = expr.split("\\.");
-                JsonElement value = source;
-                for (String part : parts) {
-                    if (value != null && value.isJsonObject() && value.getAsJsonObject().has(part)) {
-                        value = value.getAsJsonObject().get(part);
-                    } else {
-                        value = JsonNull.INSTANCE;
-                        break;
-                    }
-                }
-                return value == null ? JsonNull.INSTANCE : value;
+    // 依 key path 取值，支援巢狀
+    private JsonElement getValueByPath(JsonObject source, String path) {
+        String[] parts = path.split("\\.");
+        JsonElement value = source;
+        for (String part : parts) {
+            if (value != null && value.isJsonObject() && value.getAsJsonObject().has(part)) {
+                value = value.getAsJsonObject().get(part);
             } else {
-                // 非 placeholder，原樣回傳
-                return templateNode;
+                return JsonNull.INSTANCE;
             }
-        } else {
-            // 其他型態直接回傳
-            return templateNode;
         }
+        return value;
     }
+
+    // 處理字串 escape
+    private String escapeJsonString(String s) {
+        return s.replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\b", "\\b")
+                .replace("\f", "\\f")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t");
+    }
+
+
+
+    
 }
