@@ -126,7 +126,106 @@ public class Module1Controller {
                 .replace("\t", "\\t");
     }
 
+/**
+     * resolvePlaceholder2:
+     * 1. 遞迴 template Map，尋找所有 value 為 {{ $... }} 的字串
+     * 2. 解析路徑，從 source Map 取值，綁定回 template
+     * 3. 支援巢狀 Map/List 結構
+     * 4. 回傳結果為 JSONObject
+     */
+    public JsonObject resolvePlaceholder2(Map<String, Object> source, Map<String, Object> template) {
+        Map<String, Object> result = deepCopyAndBind(template, source, new ArrayList<>());
+        // log: 完成後的 result
+        System.out.println("[resolvePlaceholder2] result=" + result);
+        // 轉回 JsonObject
+        com.google.gson.Gson gson = new com.google.gson.Gson();
+        return gson.toJsonTree(result).getAsJsonObject();
+    }
 
+    // 遞迴處理 Map/List，遇到 {{ $... }} 字串則取值替換
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> deepCopyAndBind(Map<String, Object> template, Map<String, Object> source, List<String> pathStack) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : template.entrySet()) {
+            String key = entry.getKey();
+            Object value = entry.getValue();
+            List<String> currentPath = new ArrayList<>(pathStack);
+            currentPath.add(key);
+
+            if (value instanceof String) {
+                String strVal = (String) value;
+                // 檢查是否為 {{ $... }} pattern
+                Pattern p = Pattern.compile("\\{\\{\\s*\\$(.*?)\\s*}}");
+                Matcher m = p.matcher(strVal);
+                if (m.matches()) {
+                    String expr = m.group(1).trim();
+                    Object resolved = getValueByPathFromMap(source, expr);
+                    // log: 匹配到 placeholder
+                    System.out.println("[deepCopyAndBind] path=" + String.join(".", currentPath) + " placeholder=" + strVal + " expr=" + expr + " resolved=" + resolved);
+                    result.put(key, resolved);
+                } else {
+                    result.put(key, value);
+                }
+            } else if (value instanceof Map) {
+                // 巢狀 Map
+                result.put(key, deepCopyAndBind((Map<String, Object>) value, source, currentPath));
+            } else if (value instanceof List) {
+                // 巢狀 List
+                result.put(key, deepCopyAndBindList((List<Object>) value, source, currentPath));
+            } else {
+                result.put(key, value);
+            }
+        }
+        return result;
+    }
+
+    // 遞迴處理 List
+    @SuppressWarnings("unchecked")
+    private List<Object> deepCopyAndBindList(List<Object> templateList, Map<String, Object> source, List<String> pathStack) {
+        List<Object> result = new ArrayList<>();
+        int idx = 0;
+        for (Object item : templateList) {
+            List<String> currentPath = new ArrayList<>(pathStack);
+            currentPath.add("[" + idx + "]");
+            if (item instanceof String) {
+                String strVal = (String) item;
+                Pattern p = Pattern.compile("\\{\\{\\s*\\$(.*?)\\s*}}");
+                Matcher m = p.matcher(strVal);
+                if (m.matches()) {
+                    String expr = m.group(1).trim();
+                    Object resolved = getValueByPathFromMap(source, expr);
+                    System.out.println("[deepCopyAndBindList] path=" + String.join(".", currentPath) + " placeholder=" + strVal + " expr=" + expr + " resolved=" + resolved);
+                    result.add(resolved);
+                } else {
+                    result.add(item);
+                }
+            } else if (item instanceof Map) {
+                result.add(deepCopyAndBind((Map<String, Object>) item, source, currentPath));
+            } else if (item instanceof List) {
+                result.add(deepCopyAndBindList((List<Object>) item, source, currentPath));
+            } else {
+                result.add(item);
+            }
+            idx++;
+        }
+        return result;
+    }
+
+    // 依 key path 取值，支援巢狀 Map
+    private Object getValueByPathFromMap(Map<String, Object> source, String path) {
+        String[] parts = path.split("\\.");
+        Object value = source;
+        for (String part : parts) {
+            if (value instanceof Map && ((Map<?, ?>) value).containsKey(part)) {
+                value = ((Map<?, ?>) value).get(part);
+            } else {
+                // log: 路徑不存在
+                System.out.println("[getValueByPathFromMap] path=" + path + " not found at part=" + part);
+                return null;
+            }
+        }
+        return value;
+    }
 
     
 }
