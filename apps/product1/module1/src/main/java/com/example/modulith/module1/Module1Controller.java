@@ -9,15 +9,19 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class Module1Controller {
     
-    @GetMapping("/module1/hello")
+    
+
+    @GetMapping("/")
     public String hello() {
         String sourceJson = "{\n" +
                 "    \"key1\": {\n" +
                 "         \"field1\": \"field1 value\"\n" +
                 "    },\n" +
                 "    \"key2\": {\n" +
-                "         \"field2\": \"value2\",\n" +
-                "         \"field3\": \"value3\"\n" +
+                "         \"key22\": {\n" +
+                "            \"field2\": \"value2\",\n" +
+                "            \"field3\": \"value3\"\n" +
+                "         }\n" +
                 "    },\n" +
                 "    \"key3\": [\n" +
                 "          \"value4\", \"value5\"\n" +
@@ -25,7 +29,12 @@ public class Module1Controller {
                 "}";
         String templateJson = "{\n" +
                 "    \"k1\": \"{{ $key1.field1 }}\",\n" +
-                "    \"k2\": \"{{ $key2 }}\",\n" +
+                "    \"k22\": [\n" +
+                "        {\n" +
+                "            \"name\": \"type\",\n" +
+                "            \"value\": \"{{ $key2.key22 }}\"\n" +
+                "        }\n" +
+                "    ],\n" +
                 "    \"k3\": \"{{ $key3 }}\"\n" +
                 "}";
 
@@ -58,8 +67,26 @@ public class Module1Controller {
             }
             return obj;
         } else if (templateNode.isJsonArray()) {
+            JsonArray templateArr = templateNode.getAsJsonArray();
             JsonArray arr = new JsonArray();
-            for (JsonElement item : templateNode.getAsJsonArray()) {
+            for (JsonElement item : templateArr) {
+                if (item.isJsonObject() && item.getAsJsonObject().has("value")) {
+                    JsonObject obj = item.getAsJsonObject();
+                    JsonElement valueElem = obj.get("value");
+                    // 若 value 欄位為 placeholder，則遞迴解析
+                    if (valueElem.isJsonPrimitive() && valueElem.getAsJsonPrimitive().isString()) {
+                        String str = valueElem.getAsString();
+                        Pattern pattern = Pattern.compile("\\{\\{\\s*\\$(.*?)\\s*}}");
+                        Matcher matcher = pattern.matcher(str);
+                        if (matcher.matches()) {
+                            JsonElement resolved = resolveNode(source, valueElem);
+                            JsonObject newObj = obj.deepCopy();
+                            newObj.add("value", resolved);
+                            arr.add(newObj);
+                            continue;
+                        }
+                    }
+                }
                 arr.add(resolveNode(source, item));
             }
             return arr;
